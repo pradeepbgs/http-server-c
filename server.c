@@ -1,16 +1,27 @@
+#include <pthread.h>
+#include <bits/pthreadtypes.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+
 
 #define PORT 3000
 #define BUFFER_SIZE 1024
 
 int create_server_socket();
 void handle_connection(int client_address);
+
+void *thread_handler(void *client_socket_ptr){
+  int client_socket = *(int *)client_socket_ptr;
+  free(client_socket_ptr);
+  handle_connection(client_socket);
+  return NULL;
+}
 
 int main(){
   int server_fd = create_server_socket();
@@ -25,15 +36,20 @@ int main(){
   socklen_t addrlen = sizeof(client_address);
   
   while (1) {
-    
-    int client_socket = accept(server_fd, (struct sockaddr*)&client_address,&addrlen);
-    if (client_socket < 0) {
+    int *client_socket = malloc(sizeof(int));
+    *client_socket = accept(server_fd, (struct sockaddr*)&client_address,&addrlen);
+    if (*client_socket < 0) {
       perror("Accept failed");
       close(server_fd);
       return -1;
+    } else {
+      printf("Accepted connection from %s:%d\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
     }
     
-   handle_connection(client_socket);
+   // create threads
+   pthread_t thread_id;
+   pthread_create(&thread_id, NULL,thread_handler,client_socket);
+   pthread_detach(thread_id);
   }
   // close socket after req done
   close(server_fd);
@@ -53,7 +69,7 @@ int create_server_socket(){
   }
   
   // step2: setting socket option (optional but usefull)
-  if (setsockopt(server_fd,     SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
+  if (setsockopt(server_fd,     SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
     perror("setsocket failed\n");
     close(server_fd);
     return -1;
@@ -104,10 +120,11 @@ void handle_connection(int client_socket){
   // or simple
   
   const char *response = 
-  "HTTP/1.1 200 OK\r\n"
-  "Content-Type: text/plain\r\n"
-  "\r\n"
-  "Hello from server";
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/plain\r\n"
+      "Content-Length: 17\r\n"  // Length of the response body
+      "Connection: close\r\n\r\n"
+      "Hello from server";
   write(client_socket, response,strlen(response));     
   close(client_socket);
   
